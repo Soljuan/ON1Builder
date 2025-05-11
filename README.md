@@ -11,7 +11,7 @@ ON1Builder is a fully-automated, production-grade, multi-chain trading bot runni
 - Automated maintenance and security tasks
 - Production-grade deployment with Docker and systemd
 
-## Quick Start
+## Installation
 
 1. Clone the repository:
    ```bash
@@ -19,14 +19,24 @@ ON1Builder is a fully-automated, production-grade, multi-chain trading bot runni
    cd ON1Builder
    ```
 
-2. Run the secure deployment script:
+2. Copy the multi-chain environment template:
+   ```bash
+   cp .env.multi-chain.template .env.multi-chain
+   ```
+
+3. Edit the `.env.multi-chain` file to configure your multi-chain settings:
+   ```bash
+   nano .env.multi-chain
+   ```
+
+4. Run the secure deployment script:
    ```bash
    ./secure_deploy_multi_chain.sh
    ```
 
-3. Follow the prompts to enter sensitive information.
+5. Follow the prompts to enter sensitive information.
 
-4. Verify the deployment:
+6. Verify the deployment:
    ```bash
    ./scripts/verify_live.sh
    ```
@@ -35,7 +45,7 @@ ON1Builder is a fully-automated, production-grade, multi-chain trading bot runni
 
 - [Deployment Guide](DEPLOYMENT.md)
 - [Security Guidelines](SECURITY.md)
-- [Post-Deployment Checklist](post_deployment_checklist.md)
+- [Post-Deployment Checklist](DEPLOYMENT.md#post-deployment-checklist)
 
 ## License
 

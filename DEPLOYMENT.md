@@ -104,10 +104,9 @@ Verify the deployment:
 
 Access the Grafana dashboard at http://localhost:3000 with the default credentials:
 - Username: admin
-
-Efter körning av deploy_prod.sh – se även [Post-Deployment Checklist](post_deployment_checklist.md) för löpande drift.
-Efter körning av deploy_prod.sh – se även [Post-Deployment Checklist](post_deployment_checklist.md) för löpande drift.
 - Password: admin
+
+Efter körning av deploy_prod.sh – se även [Post-Deployment Checklist](#post-deployment-checklist) för löpande drift.
 
 ## 7. Maintenance & Security
 
@@ -123,6 +122,18 @@ This script sets up cron jobs for:
 - Faucet balance checks
 - Monthly wallet key rotation
 - Weekly wallet key backups
+
+## Post-Deployment Checklist
+
+After deployment, ensure you complete the following tasks:
+
+1. Change default Grafana admin password
+2. Verify all chains are connected and active
+3. Test alert notifications
+4. Backup Vault unseal keys and root token
+5. Schedule regular backups
+6. Monitor system for 24 hours
+7. Set up additional monitoring alerts
 
 ## Troubleshooting
 
@@ -140,5 +151,3 @@ sudo journalctl -u on1builder
 ```
 
 For more detailed troubleshooting, see the [Troubleshooting Guide](docs/TROUBLESHOOTING.md).
-
-Efter körning av deploy_prod.sh – se även [Post-Deployment Checklist](post_deployment_checklist.md) för löpande drift.
