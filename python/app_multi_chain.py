@@ -14,10 +14,13 @@ import asyncio
 import time
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
-from flask import Flask, jsonify, request, Response
+from datetime import datetime
+from flask import Flask, jsonify, request, Response, g, current_app
 from flask_cors import CORS
-from configuration_multi_chain import MultiChainConfiguration
-from multi_chain_core import MultiChainCore
+from python.configuration_multi_chain import MultiChainConfiguration
+from python.multi_chain_core import MultiChainCore
+from python.alerts_new import SlackNotifier
+from python.transaction_core import simulate_transaction
 
 # Set up logging
 logging.basicConfig(
@@ -34,11 +37,11 @@ logger = logging.getLogger("App")
 app = Flask(__name__)
 CORS(app)
 
-# Global variables
-config = None
-core = None
-bot_status = "stopped"
-bot_task = None
+# Initialize app config with default values
+app.config['config'] = None
+app.config['core'] = None
+app.config['bot_status'] = "stopped"
+app.config['bot_task'] = None
 
 # Initialize configuration and core
 async def initialize() -> bool:
@@ -47,20 +50,18 @@ async def initialize() -> bool:
     Returns:
         True if initialization was successful, False otherwise
     """
-    global config, core
-    
     try:
         # Load configuration
         logger.info("Loading configuration...")
-        config = MultiChainConfiguration()
+        app.config['config'] = MultiChainConfiguration()
         
         # Create core
         logger.info("Creating MultiChainCore...")
-        core = MultiChainCore(config)
+        app.config['core'] = MultiChainCore(app.config['config'])
         
         # Initialize core
         logger.info("Initializing MultiChainCore...")
-        success = await core.initialize()
+        success = await app.config['core'].initialize()
         if not success:
             logger.error("Failed to initialize MultiChainCore")
             return False
@@ -80,6 +81,10 @@ def healthz() -> Tuple[Dict[str, Any], int]:
         A tuple of (response, status_code)
     """
     try:
+        config = current_app.config['config']
+        core = current_app.config['core']
+        bot_status = current_app.config['bot_status']
+        
         # Check if configuration is loaded
         if config is None:
             return jsonify({
@@ -130,6 +135,7 @@ def healthz() -> Tuple[Dict[str, Any], int]:
         }), 200
     except Exception as e:
         logger.error(f"Error in health check: {e}")
+        config = current_app.config['config']
         return jsonify({
             "status": "error",
             "message": f"Error in health check: {str(e)}",
@@ -145,6 +151,9 @@ def metrics() -> Dict[str, Any]:
         A dictionary of metrics
     """
     try:
+        core = current_app.config['core']
+        bot_status = current_app.config['bot_status']
+        
         # Check if core is initialized
         if core is None:
             return jsonify({
@@ -175,6 +184,10 @@ def status() -> Dict[str, Any]:
         A dictionary with the current status
     """
     try:
+        config = current_app.config['config']
+        core = current_app.config['core']
+        bot_status = current_app.config['bot_status']
+        
         return jsonify({
             "status": bot_status,
             "go_live": getattr(config, "GO_LIVE", False) if config else False,
@@ -197,9 +210,10 @@ def start_bot() -> Dict[str, Any]:
     Returns:
         A dictionary with the result
     """
-    global bot_status, bot_task
-    
     try:
+        core = current_app.config['core']
+        bot_status = current_app.config['bot_status']
+        
         # Check if bot is already running
         if bot_status == "running":
             return jsonify({
@@ -216,22 +230,21 @@ def start_bot() -> Dict[str, Any]:
         
         # Start the bot
         logger.info("Starting bot...")
-        bot_status = "starting"
+        current_app.config['bot_status'] = "starting"
         
         # Create task to run the core
         async def run_core():
-            global bot_status
             try:
-                bot_status = "running"
+                current_app.config['bot_status'] = "running"
                 await core.run()
             except Exception as e:
                 logger.error(f"Error running core: {e}")
             finally:
-                bot_status = "stopped"
+                current_app.config['bot_status'] = "stopped"
         
         # Start the task
         loop = asyncio.get_event_loop()
-        bot_task = loop.create_task(run_core())
+        current_app.config['bot_task'] = loop.create_task(run_core())
         
         return jsonify({
             "status": "success",
@@ -239,7 +252,7 @@ def start_bot() -> Dict[str, Any]:
         })
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
-        bot_status = "error"
+        current_app.config['bot_status'] = "error"
         return jsonify({
             "status": "error",
             "message": f"Error starting bot: {str(e)}",
@@ -253,9 +266,11 @@ def stop_bot() -> Dict[str, Any]:
     Returns:
         A dictionary with the result
     """
-    global bot_status, bot_task
-    
     try:
+        core = current_app.config['core']
+        bot_status = current_app.config['bot_status']
+        bot_task = current_app.config['bot_task']
+        
         # Check if bot is running
         if bot_status != "running":
             return jsonify({
@@ -272,11 +287,10 @@ def stop_bot() -> Dict[str, Any]:
         
         # Stop the bot
         logger.info("Stopping bot...")
-        bot_status = "stopping"
+        current_app.config['bot_status'] = "stopping"
         
         # Create task to stop the core
         async def stop_core():
-            global bot_status
             try:
                 await core.stop()
                 if bot_task:
@@ -284,7 +298,7 @@ def stop_bot() -> Dict[str, Any]:
             except Exception as e:
                 logger.error(f"Error stopping core: {e}")
             finally:
-                bot_status = "stopped"
+                current_app.config['bot_status'] = "stopped"
         
         # Start the task
         loop = asyncio.get_event_loop()
@@ -310,6 +324,9 @@ def test_alert() -> Dict[str, Any]:
         A dictionary with the result
     """
     try:
+        core = current_app.config['core']
+        config = current_app.config['config']
+        
         # Check if core is initialized
         if core is None:
             return jsonify({
@@ -320,7 +337,13 @@ def test_alert() -> Dict[str, Any]:
         # Log test alert
         logger.info("Sending test alert")
         
-        # TODO: Implement alert sending
+        # Get request data
+        data = request.json or {}
+        chain_id = data.get("chain_id", "1")
+        
+        # Send alert via Slack
+        notifier = SlackNotifier(webhook_url=config.SLACK_WEBHOOK_URL)
+        notifier.send(f"✅ Test alert from ON1Builder on chain {chain_id} at {datetime.utcnow().isoformat()}Z")
         
         return jsonify({
             "status": "success",
@@ -335,13 +358,15 @@ def test_alert() -> Dict[str, Any]:
 
 # Simulate transaction endpoint
 @app.route("/api/simulate-transaction", methods=["POST"])
-def simulate_transaction() -> Dict[str, Any]:
+def simulate_transaction_endpoint() -> Dict[str, Any]:
     """Simulate a transaction.
     
     Returns:
         A dictionary with the result
     """
     try:
+        core = current_app.config['core']
+        
         # Check if core is initialized
         if core is None:
             return jsonify({
@@ -352,6 +377,7 @@ def simulate_transaction() -> Dict[str, Any]:
         # Get request data
         data = request.json or {}
         chain_id = data.get("chain_id", "1")
+        opportunity = data.get("opportunity", {})
         
         # Check if chain is active
         if chain_id not in core.workers:
@@ -363,19 +389,15 @@ def simulate_transaction() -> Dict[str, Any]:
         # Log simulation
         logger.info(f"Simulating transaction on chain {chain_id}")
         
-        # TODO: Implement transaction simulation
+        # Simulate transaction
+        sim_result = simulate_transaction(chain_id=chain_id, opportunity=opportunity)
+        logger.info(f"Simulation result for chain {chain_id}: {sim_result}")
         
         return jsonify({
             "status": "success",
             "message": "Transaction simulated",
             "chain_id": chain_id,
-            "result": {
-                "success": True,
-                "gas_used": 100000,
-                "gas_price_gwei": 20,
-                "estimated_cost_eth": 0.002,
-                "estimated_profit_eth": 0.005,
-            },
+            "result": sim_result,
         })
     except Exception as e:
         logger.error(f"Error simulating transaction: {e}")
